@@ -39,10 +39,26 @@ public class Enemy : LivingEntity {
 
     private void Awake() {
         // 초기화
+        pathFinder = GetComponent<NavMeshAgent>();
+        enemyAnimator = GetComponent<Animator>();
+        enemyAudioPlayer = GetComponent<AudioSource>();
+
+        enemyRenderer = GetComponentInChildren<Renderer>();
     }
 
     // 적 AI의 초기 스펙을 결정하는 셋업 메서드
     public void Setup(float newHealth, float newDamage, float newSpeed, Color skinColor) {
+        // 체력 설정
+        startingHealth = newHealth;
+        health = newHealth;
+
+        // 공격력
+        damage = newDamage;
+
+        // 내비메시 에이젠트의 이동 속도 설정
+        pathFinder.speed = newSpeed;
+        // 렌더러가 사용 중인 머터리얼의 컬러를 변경
+        enemyRenderer.material.color = skinColor;
     }
 
     private void Start() {
@@ -60,6 +76,38 @@ public class Enemy : LivingEntity {
         // 살아있는 동안 무한 루프
         while (!dead)
         {
+            if (hasTarget)
+            {
+                // 추적 대상 존재 : 경로를 갱신하고 이동 진행
+                pathFinder.isStopped = false;
+                pathFinder.SetDestination(targetEntity.transform.position);
+            }
+            else
+            {
+                // 추적 대상 없음 : 이동 중지
+                pathFinder.isStopped = true;
+
+                // 20유닛의 반지름을 가진 가상의 구를 그렸을 때 걸리는 모든 콜라이더
+                // whatIsTarget 레이어를 가진 콜라이더만 가져오게 함
+                Collider[] colliders =
+                    Physics.OverlapSphere(transform.position, 20f, whatIsTarget);
+
+                // 살아 있는 LivingEntity 찾기
+                for(int i = 0; i < colliders.Length; i++)
+                {
+                    // 콜라이더로부터 LivingEntity 컴포넌트 가져오기
+                    LivingEntity livingEntity = colliders[i].GetComponent<LivingEntity>();
+                    
+                    // LivingEntity가 존재하며, 해당 LivingEntity가 살아 있다면
+                    if(livingEntity != null && !livingEntity.dead)
+                    {
+                        // 추적 대상을 해당 livingEntity로
+                        targetEntity = livingEntity;
+
+                        break;
+                    }
+                }
+            }
             // 0.25초 주기로 처리 반복
             yield return new WaitForSeconds(0.25f);
         }
@@ -67,6 +115,17 @@ public class Enemy : LivingEntity {
 
     // 데미지를 입었을때 실행할 처리
     public override void OnDamage(float damage, Vector3 hitPoint, Vector3 hitNormal) {
+        if (!dead)
+        {
+            // 공격받은 지점과 방향으로 파티클 효과
+            hitEffect.transform.position = hitPoint;
+            hitEffect.transform.rotation = Quaternion.LookRotation(hitNormal);
+            hitEffect.Play();
+
+            // 피격 효과음 재생
+            enemyAudioPlayer.PlayOneShot(hitSound);
+        }
+
         // LivingEntity의 OnDamage()를 실행하여 데미지 적용
         base.OnDamage(damage, hitPoint, hitNormal);
     }
@@ -75,9 +134,41 @@ public class Enemy : LivingEntity {
     public override void Die() {
         // LivingEntity의 Die()를 실행하여 기본 사망 처리 실행
         base.Die();
+
+        // 다른 AI 방해하지 않도록 콜라이더 비활성화
+        Collider[] enemyColliders = GetComponents<Collider>();
+        for(int i = 0; i < enemyColliders.Length; i++)
+        {
+            enemyColliders[i].enabled = false;
+        }
+
+        // 추적 금지
+        pathFinder.isStopped = true;
+        pathFinder.enabled = false;
+        
+        // 사망 애니메이션 & 효과음 재생
+        enemyAnimator.SetTrigger("Die");
+        enemyAudioPlayer.PlayOneShot(deathSound);
     }
 
     private void OnTriggerStay(Collider other) {
-        // 트리거 충돌한 상대방 게임 오브젝트가 추적 대상이라면 공격 실행   
+        // 트리거 충돌한 상대방 게임 오브젝트가 추적 대상이라면 공격 실행
+        if(!dead && Time.time >= lastAttackTime + timeBetAttack)
+        {
+            // 상대방의 LivingEntity 가져오기
+            LivingEntity attackTarget = other.GetComponent<LivingEntity>();
+
+            // 상대방의 LivingEntity가 자신의 추적 대상이라면 공격
+            if(attackTarget != null && attackTarget == targetEntity)
+            {
+                lastAttackTime = Time.time;
+
+                // 상대방의 피격 위치와 피격 방향 근삿값
+                Vector3 hitPoint = other.ClosestPoint(transform.position);
+                Vector3 hitNormal = transform.position - other.transform.position;
+
+                attackTarget.OnDamage(damage, hitPoint, hitNormal);
+            }
+        }
     }
 }
