@@ -46,9 +46,49 @@ public class EnemySpawner : MonoBehaviour {
 
     // 현재 웨이브에 맞춰 적을 생성
     private void SpawnWave() {
+        // 웨이브 1 증가
+        wave++;
+
+        // 현재 웨이브 * 1.5 반올림한 수
+        int spawnCount = Mathf.RoundToInt(wave * 1.5f);
+
+        for(int i = 0; i < spawnCount; i++)
+        {
+            // 적의 세기를 0 ~ 100 사이에서 랜덤 결정
+            float enemyIntensity = Random.Range(0f, 1f);
+            // 적 생성
+            CreateEnemy(enemyIntensity);
+        }
     }
 
     // 적을 생성하고 생성한 적에게 추적할 대상을 할당
     private void CreateEnemy(float intensity) {
+        // intensity를 기준으로 능력치 결정
+        float health = Mathf.Lerp(healthMin, healthMax, intensity);
+        float damage = Mathf.Lerp(damageMin, damageMax, intensity);
+        float speed = Mathf.Lerp(speedMin, speedMax, intensity);
+
+        // intensity를 기준으로 하얀색과 strongEnemyColor 사이에서 색깔 결정
+        Color skinColor = Color.Lerp(Color.white, strongEnemyColor, intensity);
+
+        // 생성 위치 랜덤 결정
+        Transform spawnPoint = spawnPoints[Random.Range(0, spawnPoints.Length)];
+
+        // 프리팹으로부터 적 생성
+        Enemy enemy = Instantiate(enemyPrefab, spawnPoint.position, spawnPoint.rotation);
+
+        // 생성한 적 능력치, 추적대상 설정
+        enemy.Setup(health, damage, speed, skinColor);
+
+        // 생성된 적 리스트에 추가
+        enemies.Add(enemy);
+
+        // 적의 onDeath 이벤트에 메소드 등록
+        // 사망한 적 리스트 제거
+        enemy.onDeath += () => enemies.Remove(enemy);
+        // 사망한 적 10초 뒤 파괴
+        enemy.onDeath += () => Destroy(enemy.gameObject, 10f);
+        // 적 사망시 점수 상승
+        enemy.onDeath += () => GameManager.instance.AddScore(100);
     }
 }
